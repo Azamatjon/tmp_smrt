@@ -2,7 +2,7 @@ import jsonwebtoken from 'jsonwebtoken'
 import { SchemaDirectiveVisitor, AuthenticationError, ValidationError } from 'apollo-server-express'
 import { defaultFieldResolver } from 'graphql'
 
-import { JWT_SECRET } from '../config'
+import { JWT_SECRET } from '../config.js'
 
 class AuthDirective extends SchemaDirectiveVisitor {
   visitFieldDefinition (field) {

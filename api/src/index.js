@@ -4,19 +4,20 @@ import express from 'express'
 import mongoose from 'mongoose' 
 import cors from 'cors'
 import { ApolloServer } from 'apollo-server-express'
-import typeDefs from './typeDefs'
-import resolvers from './resolvers'
-import schemaDirectives from './directives'
-import models from './models'
+import typeDefs from './typeDefs/index.js'
+import resolvers from './resolvers/index.js'
+import schemaDirectives from './directives/index.js'
+import models from './models/index.js'
 import network from './scripts/network.js'
 
-import { APP_PORT, IN_PROD, DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME } from './config'
+import { APP_PORT, IN_PROD, DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME } from './config.js'
 
 (async () => {
   try {
+    console.log('con', `mongodb://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}`)
     await mongoose.connect(
-      `mongodb://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}`,
-      { useNewUrlParser: true }
+      `mongodb://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?authSource=admin`,
+        { useNewUrlParser: true, useUnifiedTopology: true }
     )
 
     const app = express();

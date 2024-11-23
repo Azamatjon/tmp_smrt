@@ -1,0 +1,16 @@
+General:
+  TLS:
+    Enabled: true
+    PrivateKey: /etc/hyperledger/fabric/tls/server.key
+    Certificate: /etc/hyperledger/fabric/tls/server.crt
+    RootCAs:
+      - /etc/hyperledger/fabric/tls/ca.crt
+    ClientAuthRequired: true
+
+Metrics:
+  Provider: prometheus
+
+Operations:
+  ListenAddress: 127.0.0.1:9443
+  TLS:
+    Enabled: false

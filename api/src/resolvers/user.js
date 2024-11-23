@@ -1,7 +1,7 @@
 import { UserInputError } from 'apollo-server-express'
 import jsonwebtoken from 'jsonwebtoken'
 
-import { JWT_SECRET } from '../config'
+import { JWT_SECRET } from '../config.js'
 
 const createToken = async (passport) => {
   const token = await jsonwebtoken.sign(

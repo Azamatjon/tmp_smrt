@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import mongoosePaginate from 'mongoose-paginate-v2'
-import { hash, compare } from 'bcryptjs'
+import {compare, hash} from "bcrypt";
 
 const userSchema = new mongoose.Schema({
   role: String,

@@ -31,3 +31,8 @@ composer-logs
 
 *.bna
 *.card
+
+/peer-data
+/crypto-config
+/ipfs-data
+/mongo-data

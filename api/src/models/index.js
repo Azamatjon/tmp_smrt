@@ -1,6 +1,6 @@
-import User from './user'
-import Report from './report'
-import Version from './version'
+import User from './user.js'
+import Report from './report.js'
+import Version from './version.js'
 
 export default {
   User,

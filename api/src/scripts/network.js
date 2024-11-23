@@ -1,215 +1,164 @@
-import { AdminConnection } from 'composer-admin'
-import { BusinessNetworkConnection } from 'composer-client'
-import { IdCard } from 'composer-common'
-import ipfsAPI from 'ipfs-api'
-
-const ipfs = ipfsAPI('localhost', '5001', {protocol: 'http'})
+import { Gateway, Wallets } from 'fabric-network';
+import path from 'path';
+import fs from 'fs';
+import { create } from 'ipfs-http-client';
+const ipfs = create({ host: 'localhost', port: '5001', protocol: 'http' });
+import { fileURLToPath } from 'url';
+import {WALLET_PATH} from "../config.js";
 
 const namespace = 'org.nykredit.co';
-
-let adminConnection;
-
-let businessNetworkConnection;
-
 let businessNetworkName = 'nykredit-network';
-let factory;
 
-async function importCardForIdentity(cardName, identity) {
+// Convert import.meta.url to a path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-  adminConnection = new AdminConnection();
+// Load connection profile
+const ccpPath = path.resolve(__dirname, '../configs/local_connection.json');
+const ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
 
-  const metadata = {
-      userName: identity.userID,
-      version: 1,
-      enrollmentSecret: identity.userSecret,
-      businessNetwork: businessNetworkName
-  };
-
-  const connectionProfile = require('./local_connection.json');
-  const card = new IdCard(metadata, connectionProfile);
-
-  await adminConnection.importCard(cardName, card);
-}
-
+const walletPath = path.resolve(WALLET_PATH);
 export default {
 
- createUser: async function (cardId, id) {
+  createUser: async function (cardId, id) {
     try {
+      // Create a new file system-based wallet for managing identities
+      const wallet = await Wallets.newFileSystemWallet(walletPath);
 
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect('admin@nykredit-network');
+      // Check if the user already exists
+      const userExists = await wallet.get(id);
+      if (userExists) {
+        console.log(`An identity for the user ${id} already exists in the wallet`);
+        return;
+      }
 
-      factory = businessNetworkConnection.getBusinessNetwork().getFactory();
+      // Check if admin identity exists in wallet
+      const adminExists = await wallet.get('admin');
+      if (!adminExists) {
+        console.log('An identity for the admin user "admin" does not exist in the wallet');
+        return;
+      }
 
-      const user = factory.newResource(namespace, 'User', id);
-      const participantRegistry = await businessNetworkConnection.getParticipantRegistry(namespace + '.User');
-      await participantRegistry.add(user);
+      // Create a new gateway for connecting to the network
+      const gateway = new Gateway();
+      await gateway.connect(ccp, {
+        wallet,
+        identity: 'admin',
+        discovery: { enabled: true, asLocalhost: true },
+        tlsInfo: {
+          verify: false,
+        },
+      });
 
-      const identity = await businessNetworkConnection.issueIdentity(namespace + '.User#' + id, cardId);
-      await importCardForIdentity(cardId, identity);
+      // Get the network (channel) the contract is deployed to
+      const network = await gateway.getNetwork('mychannel');
 
-      await businessNetworkConnection.disconnect('admin@nykredit-network');
+      // Get the contract from the network
+      const contract = network.getContract('nykredit-network');
 
+      // Submit transaction to add a user
+      await contract.submitTransaction('createUser', userId, orgMsp);
+
+      // Disconnect from the gateway
+      await gateway.disconnect();
+
+      console.log(`User ${userId} successfully created`);
       return true;
-    }
-    catch(err) {
+    } catch (err) {
       console.log(err);
-      var error = {};
-      error.error = err.message;
+      const error = { error: err.message };
       return error;
     }
   },
 
   checkUser: async function (cardId, id) {
-
     try {
+      const wallet = await Wallets.newFileSystemWallet(walletPath);
 
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
-    
-      const employeeRegistry = await businessNetworkConnection.getParticipantRegistry(namespace + '.User');
-      
-      await employeeRegistry.get(id);
+      const gateway = new Gateway();
+      await gateway.connect(ccp, { wallet, identity: cardId, discovery: { enabled: true, asLocalhost: true } });
 
-      await businessNetworkConnection.disconnect(cardId);
+      const network = await gateway.getNetwork('mychannel');
+      const contract = network.getContract(businessNetworkName);
 
-      return true;
-    }
-    catch(err) {
+      const user = await contract.evaluateTransaction('checkUser', id);
+
+      await gateway.disconnect();
+      return JSON.parse(user.toString());
+    } catch (err) {
       console.log(err);
-      var error = {};
-      error.error = err.message;
+      const error = { error: err.message };
       return error;
     }
   },
 
   createReport: async function (cardId, id, reportId, text) {
-
     try {
-
       const content = ipfs.types.Buffer.from(JSON.stringify({ text }));
       const ipfsHash = await ipfs.files.add(content);
 
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
+      const wallet = await Wallets.newFileSystemWallet(walletPath);
+      const gateway = new Gateway();
+      await gateway.connect(ccp, { wallet, identity: cardId, discovery: { enabled: true, asLocalhost: true } });
 
-      factory = businessNetworkConnection.getBusinessNetwork().getFactory();
+      const network = await gateway.getNetwork('mychannel');
+      const contract = network.getContract(businessNetworkName);
 
-      const reportCreationTransaction = factory.newTransaction(namespace, 'ReportCreationTransaction');
-      reportCreationTransaction.creator = factory.newRelationship(namespace, 'User', id);
-      reportCreationTransaction.ipfsHash = ipfsHash[0].hash;
-      reportCreationTransaction.reportId = reportId;
+      const report = { id, reportId, ipfsHash: ipfsHash[0].hash };
+      await contract.submitTransaction('createReport', JSON.stringify(report));
 
-      await businessNetworkConnection.submitTransaction(reportCreationTransaction);
-
-      await businessNetworkConnection.disconnect(cardId);
-
-      return reportCreationTransaction;
-    }
-    catch(err) {
+      await gateway.disconnect();
+      return report;
+    } catch (err) {
       console.log(err);
-      var error = {};
-      error.error = err.message;
+      const error = { error: err.message };
       return error;
     }
   },
 
   updateReport: async function (cardId, reportId, text) {
-
     try {
-
       const content = ipfs.types.Buffer.from(JSON.stringify({ text }));
       const ipfsHash = await ipfs.files.add(content);
 
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
+      const wallet = await Wallets.newFileSystemWallet(walletPath);
+      const gateway = new Gateway();
+      await gateway.connect(ccp, { wallet, identity: cardId, discovery: { enabled: true, asLocalhost: true } });
 
-      factory = businessNetworkConnection.getBusinessNetwork().getFactory();
+      const network = await gateway.getNetwork('mychannel');
+      const contract = network.getContract(businessNetworkName);
 
-      const reportUpdatingTransaction = factory.newTransaction(namespace, 'ReportUpdatingTransaction');
-      reportUpdatingTransaction.report = factory.newRelationship(namespace, 'Report', reportId);
-      reportUpdatingTransaction.newIpfsHash = ipfsHash[0].hash;
+      const reportUpdate = { reportId, newIpfsHash: ipfsHash[0].hash };
+      await contract.submitTransaction('updateReport', JSON.stringify(reportUpdate));
 
-      await businessNetworkConnection.submitTransaction(reportUpdatingTransaction);
-
-      await businessNetworkConnection.disconnect(cardId);
-
-      return reportUpdatingTransaction;
-    }
-    catch(err) {
+      await gateway.disconnect();
+      return reportUpdate;
+    } catch (err) {
       console.log(err);
-      var error = {};
-      error.error = err.message;
+      const error = { error: err.message };
       return error;
     }
   },
 
   getReport: async function (cardId, reportId) {
-
     try {
+      const wallet = await Wallets.newFileSystemWallet(walletPath);
+      const gateway = new Gateway();
+      await gateway.connect(ccp, { wallet, identity: cardId, discovery: { enabled: true, asLocalhost: true } });
 
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
+      const network = await gateway.getNetwork('mychannel');
+      const contract = network.getContract(businessNetworkName);
 
-      const reportResult = await businessNetworkConnection.query('selectReport', { id: reportId });
-      const rawReport = await ipfs.files.cat(reportResult[0].ipfsHash);
+      const reportResult = await contract.evaluateTransaction('getReport', reportId);
+      const rawReport = await ipfs.files.cat(JSON.parse(reportResult.toString()).ipfsHash);
       const report = JSON.parse(rawReport);
 
-      await businessNetworkConnection.disconnect(cardId);
-
-      return report
-    }
-    catch(err) {
+      await gateway.disconnect();
+      return report;
+    } catch (err) {
       console.log(err);
-      var error = {};
-      error.error = err.message;
-      return error
-    }
-  },
-
-  getReportCreationTransaction: async function (cardId, reportId) {
-
-    try {
-
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
-
-      const reportResult = await businessNetworkConnection.query('selectReportCreationTransaction', { reportId: reportId });
-      const rawReport = await ipfs.files.cat(reportResult[0].ipfsHash);
-      const report = JSON.parse(rawReport);
-
-      await businessNetworkConnection.disconnect(cardId);
-
-      return report
-    }
-    catch(err) {
-      console.log(err);
-      var error = {};
-      error.error = err.message;
-      return error
-    }
-  },
-
-  getReportUpdatingTransaction: async function (cardId, transactionId) {
-
-    try {
-
-      businessNetworkConnection = new BusinessNetworkConnection();
-      await businessNetworkConnection.connect(cardId);
-
-      const reportResult = await businessNetworkConnection.query('selectReportUpdatingTransaction', { transactionId: transactionId });
-      const rawReport = await ipfs.files.cat(reportResult[0].newIpfsHash);
-      const report = JSON.parse(rawReport);
-
-      await businessNetworkConnection.disconnect(cardId);
-
-      return report
-    }
-    catch(err) {
-      console.log(err);
-      var error = {};
-      error.error = err.message;
-      return error
+      const error = { error: err.message };
+      return error;
     }
   }
-}
+};

@@ -1,7 +1,7 @@
-import root from './root'
-import user from './user'
-import report from './report'
-import version from './version'
+import root from './root.js'
+import user from './user.js'
+import report from './report.js'
+import version from './version.js'
 
 export default [
   root,
